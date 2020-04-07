@@ -1,17 +1,14 @@
 import React, { useState, useLayoutEffect, useRef, useEffect } from "react";
 import * as d3 from "d3";
+import _ from "lodash";
+import d3ForceBounce from "d3-force-bounce";
+import d3ForceSurface from "d3-force-surface";
 
-const Dots = ({ data }) => {
-  const [height, updateHeight] = useState(1000);
-  const [width, updateWidth] = useState(1900);
+const DOT_RADIUS = 3;
+
+const Dots = ({ data, height, width }) => {
   const [nodes, updateNodes] = useState([]);
-
-  useLayoutEffect(() => {
-    if (ref.current) {
-      updateHeight(ref.current.clientHeight);
-      updateWidth(ref.current.clientWidth);
-    }
-  }, [data]);
+  const [disperse, toggleDisperse] = useState(false);
 
   useEffect(() => {
     const dataNodes = data.map((d, i) => {
@@ -31,17 +28,18 @@ const Dots = ({ data }) => {
         fill: fillColor,
       };
     });
+    console.log(dataNodes);
     updateNodes(dataNodes);
-    simulate(dataNodes);
-  }, [data, height, width]);
+  }, [data]);
 
-  const simulate = (dataNodes) => {
+  const simulate = () => {
     const controlNode = {
       x: width / 2,
       y: height / 2,
     };
-
-    const allNodes = [controlNode, ...dataNodes];
+    console.log(nodes);
+    const newNodes = _.cloneDeep(nodes);
+    const allNodes = [controlNode, ...newNodes];
     const links = allNodes.map((_, i) => ({ source: i, target: 0 }));
 
     const simulation = d3.forceSimulation(allNodes);
@@ -50,16 +48,65 @@ const Dots = ({ data }) => {
 
     simulation.force("gravity", gravity).force("link", linkForce);
 
-    simulation.alphaMin(0.1).velocityDecay(0.6);
-    simulation.on("tick", () => updateNodes(nodes));
+    simulation.alphaMin(0.5).velocityDecay(0.6);
+    simulation.on("tick", () => updateNodes(newNodes));
   };
 
-  const ref = useRef(null);
+  const simulateBounce = () => {
+    const newNodes = _.cloneDeep(nodes);
+
+    newNodes.forEach((node) => {
+      node.vx = (Math.random() - 0.5) * 15;
+      node.vy = (Math.random() - 0.5) * 15;
+    });
+
+    const simulation = d3.forceSimulation(newNodes);
+    simulation.force("bounce", d3ForceBounce().radius(DOT_RADIUS));
+    simulation.force(
+      "container",
+      d3ForceSurface().surfaces([
+        {
+          from: { x: 0, y: 0 },
+          to: { x: 0, y: height },
+        },
+        {
+          from: { x: 0, y: 0 },
+          to: { x: width, y: 0 },
+        },
+        {
+          from: { x: 0, y: height },
+          to: { x: width, y: height },
+        },
+        {
+          from: { x: width, y: 0 },
+          to: { x: width, y: height },
+        },
+      ])
+    );
+    simulation.velocityDecay(0);
+    simulation.on("tick", () => {
+      updateNodes(newNodes);
+    });
+  };
+
+  const clickHandler = () => {
+    console.log("D:");
+
+    const newDisperse = !disperse;
+    // if (newDisperse) {
+    //   simulateBounce();
+    // } else {
+    //   simulate();
+    // }
+    toggleDisperse(newDisperse);
+  };
+
+  simulate();
 
   return (
-    <svg width="100%" height="100%" ref={ref}>
+    <svg width="100%" height="100%" onClick={() => clickHandler()}>
       {nodes.map((n, i) => (
-        <circle cx={n.x} cy={n.y} r={3} key={i} fill={n.fill} />
+        <circle cx={n.x} cy={n.y} r={DOT_RADIUS} key={i} fill={n.fill} />
       ))}
     </svg>
   );
