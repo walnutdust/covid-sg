@@ -2,10 +2,15 @@ import React, { useRef, useLayoutEffect, useState } from "react";
 import * as d3 from "d3";
 import data from "../data/processedData.json";
 import Dots from "./Dots";
+import Chart from "./Chart";
 
 const Visualization = () => {
+  const padding = 50;
+
   return (
-    <Dots data={data} height={window.innerHeight} width={window.innerWidth} />
+    <div>
+      <Dots data={data} height={window.innerHeight} width={window.innerWidth} />
+    </div>
   );
 };
 
