@@ -4,13 +4,17 @@ import D3Dots from "./D3Dots";
 import D3Axes from "./D3Axes";
 import d3ForceBounce from "d3-force-bounce";
 import d3ForceSurface from "d3-force-surface";
+import singapore from "../data/singapore.json";
 
 let simulation = null;
 
 const STATES = {
-  BROWNIAN: "BROWNIAN",
-  CIRCLE: "CIRCLE",
   GRAPH: "GRAPH",
+  BROWNIAN: "BROWNIAN",
+  LINKS: "LINKS",
+  CIRCLE: "CIRCLE",
+  RADIAL: "RADIAL",
+  SINGAPORE: "SINGAPORE",
 };
 
 // debug only, will be removed
@@ -19,35 +23,33 @@ const stateKeys = Object.keys(STATES);
 const PADDING = 50;
 
 const Dots = ({ data, height, width }) => {
-  const [displayState, setDisplayState] = useState(STATES.CIRCLE);
+  const [displayState, setDisplayState] = useState(STATES.SINGAPORE);
 
   const ref = useRef(null);
   const xAxisRef = useRef(null);
   const yAxisRef = useRef(null);
 
   useEffect(() => {
-    const dataNodes = data.map(({ status, age, dateConfirmed, dayNo }) => {
-      const dist = Math.random() * Math.min(height, width);
-      const angle = Math.random() * Math.PI * 2;
+    const dataNodes = data.map((d) => {
+      const dist = (Math.random() * Math.min(height, width)) / 5;
+      const locAngle = Math.random() * Math.PI * 2;
       let fillColor = "red";
 
-      if (status === "Discharged") {
+      if (d.status === "Discharged") {
         fillColor = "green";
-      } else if (status === "Deceased") {
+      } else if (d.status === "Deceased") {
         fillColor = "black";
       }
 
-      return {
-        x: Math.cos(angle) * dist + width / 2,
-        y: Math.sin(angle) * dist + height / 2,
-        fill: fillColor,
-        age,
-        dateConfirmed: new Date(dateConfirmed),
-        dayNo,
-      };
+      d.x = Math.cos(locAngle) * dist + width / 2;
+      d.y = Math.sin(locAngle) * dist + height / 2;
+      d.fill = fillColor;
+      d.dateConfirmed = new Date(d.dateConfirmed);
+
+      return d;
     });
 
-    simulateGather(dataNodes);
+    singaporeBrownian(dataNodes);
   }, [data, height, width]);
 
   const clickHandler = (e) => {
@@ -64,6 +66,12 @@ const Dots = ({ data, height, width }) => {
         dailyGraph(simulation.nodes());
       } else if (newDisplayState === STATES.CIRCLE) {
         simulateGather(simulation.nodes());
+      } else if (newDisplayState === STATES.RADIAL) {
+        radialGraph(simulation.nodes());
+      } else if (newDisplayState === STATES.LINKS) {
+        linkGraph(simulation.nodes());
+      } else if (newDisplayState === STATES.SINGAPORE) {
+        singaporeBrownian(simulation.nodes());
       }
     }
 
@@ -77,20 +85,22 @@ const Dots = ({ data, height, width }) => {
   const simulateGather = (dataNodes) => {
     stopSimulation();
 
-    const controlNode = {
-      x: width / 2,
-      y: height / 2,
-    };
-    const allNodes = [controlNode, ...dataNodes];
-    const links = allNodes.map((_, i) => ({ source: i, target: 0 }));
+    simulation = d3.forceSimulation(dataNodes);
+    const replusion = d3.forceManyBody().strength(-2);
 
-    simulation = d3.forceSimulation(allNodes);
-    const gravity = d3.forceManyBody().strength((_, i) => (i === 0 ? 0 : -4));
-    const linkForce = d3.forceLink(links).strength(0.2).distance(1);
+    const yForce = d3
+      .forceY()
+      .y(height / 2)
+      .strength(0.1);
+    const xForce = d3
+      .forceX()
+      .x(width / 2)
+      .strength(0.1);
 
-    simulation.force("gravity", gravity).force("link", linkForce);
+    simulation.force("y", yForce).force("x", xForce);
+    simulation.force("replusion", replusion);
 
-    simulation.alphaMin(0.1).velocityDecay(0.6);
+    simulation.alphaMin(0.1).velocityDecay(0.4);
     simulation.on("tick", () => forceTick(dataNodes, STATES.CIRCLE));
   };
 
@@ -110,8 +120,71 @@ const Dots = ({ data, height, width }) => {
 
     simulation.force("y", yForce).force("x", xForce);
 
-    simulation.alphaMin(0.1).velocityDecay(0.4);
+    simulation.alphaMin(0.005).velocityDecay(0.4);
     simulation.on("tick", () => forceTick(dataNodes, STATES.GRAPH));
+  };
+
+  const radialGraph = (dataNodes) => {
+    stopSimulation();
+
+    const radialScale = d3.scaleTime(
+      d3.extent(dataNodes.map((d) => d.dateConfirmed)),
+      [0, (height - PADDING) / 2]
+    );
+
+    simulation = d3.forceSimulation(dataNodes);
+
+    const yForce = d3
+      .forceY()
+      .y(
+        (node) =>
+          radialScale(node.dateConfirmed) * Math.sin(node.angle) + height / 2
+      );
+    const xForce = d3
+      .forceX()
+      .x(
+        (node) =>
+          radialScale(node.dateConfirmed) * Math.cos(node.angle) + width / 2
+      );
+
+    simulation.force("x", xForce).force("y", yForce);
+
+    simulation.alphaMin(0.1).velocityDecay(0.4);
+    simulation.on("tick", () => forceTick(dataNodes, STATES.RADIAL));
+  };
+
+  const linkGraph = (dataNodes) => {
+    stopSimulation();
+
+    simulation = d3.forceSimulation(dataNodes);
+
+    const xScale = d3.scaleTime(
+      d3.extent(dataNodes.map((d) => d.dateConfirmed)),
+      [PADDING, width - PADDING]
+    );
+    const yScale = d3.scaleLinear([0, 1000], [PADDING, height - PADDING]);
+
+    const yForce = d3
+      .forceY()
+      .y((node) => (node.treeY ? yScale(node.treeY) : -PADDING));
+    const xForce = d3.forceX().x((node) => xScale(node.dateConfirmed));
+
+    simulation.force("x", xForce).force("y", yForce);
+
+    D3Axes.drawAxes(
+      d3.select(xAxisRef.current),
+      d3.select(yAxisRef.current),
+      xScale
+    );
+
+    simulation.alphaMin(0.01).velocityDecay(0.4);
+    simulation.on("tick", () => {
+      const context = ref.current.getContext("2d");
+
+      context.clearRect(0, 0, width, height);
+      D3Dots.drawDots(context, dataNodes);
+      D3Dots.drawHorizontalLinks(context, dataNodes);
+    });
   };
 
   const simulateBrownian = (dataNodes) => {
@@ -146,6 +219,35 @@ const Dots = ({ data, height, width }) => {
     );
     simulation.velocityDecay(0).alphaMin(0);
     simulation.on("tick", () => forceTick(dataNodes, STATES.BROWNIAN));
+  };
+
+  const singaporeBrownian = (dataNodes) => {
+    stopSimulation();
+    dataNodes.forEach((node) => {
+      node.vx = (Math.random() - 0.5) * 5;
+      node.vy = (Math.random() - 0.5) * 5;
+    });
+
+    d3.select(xAxisRef.current).selectAll("*").remove();
+    d3.select(yAxisRef.current).selectAll("*").remove();
+
+    simulation = d3.forceSimulation(dataNodes);
+    const yForce = d3.forceY().y(({ sgY }) => sgY);
+    const xForce = d3.forceX().x(({ sgX }) => sgX);
+
+    console.log(dataNodes[7]);
+
+    simulation
+      .force("x", xForce)
+      .force("y", yForce)
+      .alphaMin(0.01)
+      .velocityDecay(0.4);
+    simulation.on("tick", () => {
+      const context = ref.current.getContext("2d");
+
+      context.clearRect(0, 0, width, height);
+      D3Dots.drawDots(context, dataNodes);
+    });
   };
 
   const forceTick = (dataNodes, currState) => {

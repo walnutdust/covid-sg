@@ -5,8 +5,6 @@ import Dots from "./Dots";
 import Chart from "./Chart";
 
 const Visualization = () => {
-  const padding = 50;
-
   return (
     <div>
       <Dots data={data} height={window.innerHeight} width={window.innerWidth} />
