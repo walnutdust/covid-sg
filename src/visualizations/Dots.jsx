@@ -2,13 +2,9 @@ import React, { useState, useRef, useEffect } from "react";
 import * as d3 from "d3";
 import D3Dots from "./D3Dots";
 import D3Axes from "./D3Axes";
-import d3ForceBounce from "d3-force-bounce";
 import d3ForceSurface from "d3-force-surface";
-import singapore from "../data/singapore.json";
 
-let simulation = null;
-let timer = null;
-
+// Simulate an enum for the various states
 const STATES = {
   GRAPH: "GRAPH",
   BROWNIAN: "BROWNIAN",
@@ -21,15 +17,22 @@ const STATES = {
 // debug only, will be removed
 const stateKeys = Object.keys(STATES);
 
+// Global variables
 const PADDING = 50;
+const DAY = 1000 * 24 * 60 * 60;
+const WEEK = 7 * DAY;
 
 const Dots = ({ data, height, width }) => {
   const [displayState, setDisplayState] = useState(STATES.SINGAPORE);
+  const [nodes, setNodes] = useState([]);
+  const [simulation, setSimulation] = useState(null);
+  const [timer, setTimer] = useState(null);
 
   const ref = useRef(null);
   const xAxisRef = useRef(null);
   const yAxisRef = useRef(null);
 
+  // Re-initialize nodes everytime data, height, or width is changed.
   useEffect(() => {
     const dataNodes = data.map((d) => {
       const dist = (Math.random() * Math.min(height, width)) / 5;
@@ -45,53 +48,54 @@ const Dots = ({ data, height, width }) => {
       d.x = Math.cos(locAngle) * dist + width / 2;
       d.y = Math.sin(locAngle) * dist + height / 2;
       d.fill = fillColor;
-      d.dateConfirmed = new Date(d.dateConfirmed);
 
       return d;
     });
 
-    simulation = d3.forceSimulation(dataNodes);
-
-    singaporeBrownian(dataNodes);
+    setNodes(dataNodes);
   }, [data, height, width]);
 
+  useEffect(() => {
+    if (displayState === STATES.BROWNIAN) {
+      brownian();
+    } else if (displayState === STATES.GRAPH) {
+      dailyGraph();
+    } else if (displayState === STATES.CIRCLE) {
+      gatherNodes();
+    } else if (displayState === STATES.RADIAL) {
+      radialGraph();
+    } else if (displayState === STATES.LINKS) {
+      linkGraph();
+    } else if (displayState === STATES.SINGAPORE) {
+      singapore();
+    }
+  }, [displayState, nodes]);
+
+  // Debug purposes, to toggle the states.
   const clickHandler = (e) => {
     e.preventDefault();
-    console.log("hi");
 
     const newDisplayState = Object.values(STATES)[
       (stateKeys.indexOf(displayState) + 1) % stateKeys.length
     ];
 
-    if (simulation) {
-      if (newDisplayState === STATES.BROWNIAN) {
-        simulateBrownian(simulation.nodes());
-      } else if (newDisplayState === STATES.GRAPH) {
-        dailyGraph(simulation.nodes());
-      } else if (newDisplayState === STATES.CIRCLE) {
-        simulateGather(simulation.nodes());
-      } else if (newDisplayState === STATES.RADIAL) {
-        radialGraph(simulation.nodes());
-      } else if (newDisplayState === STATES.LINKS) {
-        linkGraph(simulation.nodes());
-      } else if (newDisplayState === STATES.SINGAPORE) {
-        singaporeBrownian(simulation.nodes());
-      }
-    }
-
     setDisplayState(newDisplayState);
   };
 
-  const stopSimulation = () => {
+  // Handles the reset of the state
+  const resetState = () => {
     if (timer) timer.stop();
-    if (simulation) {
-      simulation.stop();
-      simulation = d3.forceSimulation(simulation.nodes());
-    }
+    if (simulation) simulation.stop();
+
+    d3.select(xAxisRef.current).selectAll("*").remove();
+    d3.select(yAxisRef.current).selectAll("*").remove();
   };
 
-  const simulateGather = (dataNodes) => {
-    stopSimulation();
+  // This is the state where all the nodes are gathered in a circle.
+  // This is achieved with a force that gathers all the nodes to the center,
+  // counter-balanced by a force that spreads them out.
+  const gatherNodes = (dataNodes = nodes) => {
+    resetState();
     const replusion = d3.forceManyBody().strength(-2);
 
     const yForce = d3
@@ -103,15 +107,24 @@ const Dots = ({ data, height, width }) => {
       .x(width / 2)
       .strength(0.1);
 
-    simulation.force("y", yForce).force("x", xForce);
-    simulation.force("replusion", replusion);
+    const sim = d3.forceSimulation(nodes);
+    sim.force("y", yForce).force("x", xForce);
+    sim.force("replusion", replusion);
 
-    simulation.alphaMin(0.1).velocityDecay(0.4);
-    simulation.on("tick", () => forceTick(dataNodes, STATES.CIRCLE));
+    sim.alphaMin(0.1).velocityDecay(0.4);
+    sim.on("tick", () => {
+      const context = ref.current.getContext("2d");
+
+      context.clearRect(0, 0, width, height);
+      D3Dots.drawDots(context, dataNodes);
+    });
+
+    setSimulation(sim);
   };
-
-  const dailyGraph = (dataNodes) => {
-    stopSimulation();
+  // Graph of the daily numbers, sorted by their ids
+  // TODO: might consider using animations rather than force?
+  const dailyGraph = (dataNodes = nodes) => {
+    resetState();
 
     const xScale = d3.scaleTime(
       d3.extent(dataNodes.map((d) => d.dateConfirmed)),
@@ -123,98 +136,118 @@ const Dots = ({ data, height, width }) => {
     ]);
 
     const yForce = d3.forceY().y(({ dayNo }) => yScale(dayNo));
-    const xForce = d3.forceX().x((node, i) => xScale(node.dateConfirmed));
+    const xForce = d3.forceX().x(({ dateConfirmed }) => xScale(dateConfirmed));
 
-    simulation.force("y", yForce).force("x", xForce);
+    const sim = d3.forceSimulation(nodes);
 
-    simulation.alphaMin(0.005).velocityDecay(0.4);
-    simulation.on("tick", () => forceTick(dataNodes, STATES.GRAPH));
+    sim.force("y", yForce).force("x", xForce);
+    sim.alphaMin(0.005).velocityDecay(0.4);
+    sim.on("tick", () => {
+      const context = ref.current.getContext("2d");
+
+      context.clearRect(0, 0, width, height);
+      D3Axes.drawAxes(
+        d3.select(xAxisRef.current),
+        d3.select(yAxisRef.current),
+        xScale
+      );
+      D3Dots.drawDots(context, dataNodes);
+    });
+
+    setSimulation(sim);
   };
 
-  const radialGraph = (dataNodes) => {
-    stopSimulation();
+  // Radial graph of cases, with each band representing a week.
+  // Utility wise may not be the best, since it takes up a lot of space,
+  // but could be a powerful addition.
+  const radialGraph = (dataNodes = nodes) => {
+    resetState();
 
-    const DAY = 1000 * 24 * 60 * 60;
     const [firstDay, lastDay] = d3.extent(
       dataNodes.map((d) => d.dateConfirmed)
     );
 
-    const weeks = new Array(
-      Math.ceil((lastDay.getTime() - firstDay.getTime()) / (7 * DAY))
-    );
+    const weeks = new Array(Math.ceil((lastDay - firstDay) / WEEK));
 
-    dataNodes.forEach((d) => {
-      const index = Math.floor(
-        (d.dateConfirmed.getTime() - firstDay.getTime()) / (7 * DAY)
-      );
-      d.week = index;
-      if (weeks[index]) {
-        d.weekNo = weeks[index] + 1;
-        weeks[index]++;
-      } else {
-        d.weekNo = 1;
-      }
-      weeks[index] = d.weekNo;
-    });
+    // 1. Calculate the # of the case in that particular week, assign it the angle
+    // Skip if it was already set
+    if (!dataNodes[0].week) {
+      dataNodes.forEach((d) => {
+        const index = Math.floor((d.dateConfirmed - firstDay) / WEEK);
+        d.week = index;
+        d.weekNo = (weeks[index] || 0) + 1;
+        weeks[index] = d.weekNo;
+      });
 
-    dataNodes.forEach((d) => {
-      d.weekAngle = (d.weekNo / weeks[d.week]) * 2 * Math.PI;
-    });
+      dataNodes.forEach((d) => {
+        d.weekAngle = (d.weekNo / weeks[d.week]) * 2 * Math.PI;
+      });
+      console.log(weeks);
+    }
 
-    const radialScale = d3.scaleTime(
+    // 2. Plot using the angle above
+
+    const rScale = d3.scaleTime(
       [0, weeks.length - 1],
+      // The 15 serves as a padding so the cases in the first week will not be clustered
       [15, (height - 2 * PADDING) / 2]
     );
 
-    const yForce = d3
-      .forceY()
-      .y(
-        ({ week, weekAngle }) =>
-          radialScale(week) * Math.sin(weekAngle) + height / 2
-      );
-    const xForce = d3
-      .forceX()
-      .x(
-        ({ week, weekAngle }) =>
-          radialScale(week) * Math.cos(weekAngle) + width / 2
-      );
+    const ANIMATION_SPAN = 500;
 
-    simulation.force("x", xForce).force("y", yForce);
+    // Set the starting parameters
+    dataNodes.forEach((node) => {
+      node.startX = node.x;
+      node.startY = node.y;
+      node.targetX = rScale(node.week) * Math.cos(node.weekAngle) + width / 2;
+      node.targetY = rScale(node.week) * Math.sin(node.weekAngle) + height / 2;
+    });
 
-    d3.select(xAxisRef.current).selectAll("*").remove();
-    d3.select(yAxisRef.current).selectAll("*").remove();
+    const newTimer = d3.timer((elapsed) => {
+      dataNodes.forEach((node) => {
+        let ratio = elapsed / ANIMATION_SPAN;
+        if (ratio > 1) ratio = 1;
 
-    simulation.alphaMin(0.1).velocityDecay(0.4);
-    simulation.on("tick", () => {
+        node.x = (node.targetX - node.startX) * ratio + node.startX;
+        node.y = (node.targetY - node.startY) * ratio + node.startY;
+      });
+
       const context = ref.current.getContext("2d");
 
       context.clearRect(0, 0, width, height);
 
-      weeks
-        .map((_, i) => weeks.length - i)
-        .forEach((i) => {
-          context.beginPath();
-          context.ellipse(
-            width / 2,
-            height / 2,
-            radialScale(i - 0.5),
-            radialScale(i - 0.5),
-            0,
-            0,
-            2 * Math.PI
-          );
-          i % 2 === 0
-            ? (context.fillStyle = "#eeeeee")
-            : (context.fillStyle = "white");
-          context.fill();
-        });
-
+      weeks.forEach((_, i) => {
+        context.beginPath();
+        context.ellipse(
+          width / 2,
+          height / 2,
+          rScale(weeks.length - i - 0.5),
+          rScale(weeks.length - i - 0.5),
+          0,
+          0,
+          2 * Math.PI
+        );
+        i % 2 === 0
+          ? (context.fillStyle = "#eeeeee") // Fill the odd rings to highlight the weeks
+          : (context.fillStyle = "white");
+        context.fill();
+      });
       D3Dots.drawDots(context, dataNodes);
+
+      if (elapsed > ANIMATION_SPAN) newTimer.stop();
     });
+
+    setTimer(newTimer);
   };
 
-  const linkGraph = (dataNodes) => {
-    stopSimulation();
+  // Graph to show the links between different cases, as plotted against time.
+  // The data here is pre-processed in process.js, and is plotted as a d3.tree()
+  // with invisible nodes.
+  // Unfortunately the resulting graph appears very cramped, and will likely be so,
+  // and most links are not very useful anyways. Still, the manipulation used to
+  // get to this point was interesting.
+  const linkGraph = (dataNodes = nodes) => {
+    resetState();
 
     const xScale = d3.scaleTime(
       d3.extent(dataNodes.map((d) => d.dateConfirmed)),
@@ -227,35 +260,39 @@ const Dots = ({ data, height, width }) => {
       .y((node) => (node.treeY ? yScale(node.treeY) : -PADDING));
     const xForce = d3.forceX().x((node) => xScale(node.dateConfirmed));
 
-    simulation.force("x", xForce).force("y", yForce);
-
     D3Axes.drawAxes(
       d3.select(xAxisRef.current),
       d3.select(yAxisRef.current),
       xScale
     );
 
-    simulation.alphaMin(0.01).velocityDecay(0.4);
-    simulation.on("tick", () => {
+    const sim = d3.forceSimulation(nodes);
+    sim.force("x", xForce).force("y", yForce);
+    sim.alphaMin(0.01).velocityDecay(0.4);
+    sim.on("tick", () => {
       const context = ref.current.getContext("2d");
 
       context.clearRect(0, 0, width, height);
       D3Dots.drawDots(context, dataNodes);
       D3Dots.drawHorizontalLinks(context, dataNodes);
     });
+    setSimulation(sim);
   };
 
-  const simulateBrownian = (dataNodes) => {
-    stopSimulation();
+  // Simulation of brownian motion. The idea behind this was to give a visual
+  // sense of people moving around and infecting people, or to highlight sheer
+  // numbers.
+  const brownian = (dataNodes = nodes) => {
+    resetState();
     dataNodes.forEach((node) => {
       node.vx = (Math.random() - 0.5) * 5;
       node.vy = (Math.random() - 0.5) * 5;
     });
 
-    d3.select(xAxisRef.current).selectAll("*").remove();
-    d3.select(yAxisRef.current).selectAll("*").remove();
-
-    simulation.force(
+    const sim = d3.forceSimulation(nodes);
+    // Could use a d3-force-bounce here. Opted to remove it as it was draining
+    // on the resources.
+    sim.force(
       "container",
       d3ForceSurface().surfaces([
         {
@@ -276,26 +313,31 @@ const Dots = ({ data, height, width }) => {
         },
       ])
     );
-    simulation.velocityDecay(0).alphaMin(0);
-    simulation.on("tick", () => {
+    sim.velocityDecay(0).alphaMin(0);
+    sim.on("tick", () => {
       const context = ref.current.getContext("2d");
 
       context.clearRect(0, 0, width, height);
       D3Dots.drawDots(context, dataNodes);
     });
+    setSimulation(sim);
   };
 
-  const singaporeBrownian = (dataNodes) => {
-    stopSimulation();
-
-    d3.select(xAxisRef.current).selectAll("*").remove();
-    d3.select(yAxisRef.current).selectAll("*").remove();
+  // The inspiration here was originally to use brownian motion in a Singapore
+  // map container to demonstrate people moving about in Singapore. Unfortunately
+  // this proved too computationally intensive, and the current function was
+  // repurposed to animate the dots into pre-computed positions to form the
+  // silhouette of Singapore.
+  const singapore = (dataNodes = nodes) => {
+    resetState();
 
     const ANIMATION_SPAN = 300; // Animation span in ms
 
+    // sgX and sgY were pre-computed in process.js
     const heightExtent = d3.extent(dataNodes.map((d) => d.sgY));
     const widthExtent = d3.extent(dataNodes.map((d) => d.sgX));
 
+    // get the height and width of the silhouette.
     const heightSg = heightExtent[1] - heightExtent[0];
     const widthSg = widthExtent[1] - widthExtent[0];
 
@@ -315,7 +357,7 @@ const Dots = ({ data, height, width }) => {
       node.targetY = node.sgY * scale + yOffset;
     });
 
-    timer = d3.timer((elapsed) => {
+    const newTimer = d3.timer((elapsed) => {
       dataNodes.forEach((node) => {
         let ratio = elapsed / ANIMATION_SPAN;
         if (ratio > 1) ratio = 1;
@@ -329,31 +371,10 @@ const Dots = ({ data, height, width }) => {
       context.clearRect(0, 0, width, height);
       D3Dots.drawDots(context, dataNodes);
 
-      if (elapsed > ANIMATION_SPAN) timer.stop();
+      if (elapsed > ANIMATION_SPAN) newTimer.stop();
     });
-  };
 
-  const forceTick = (dataNodes, currState) => {
-    const context = ref.current.getContext("2d");
-
-    context.clearRect(0, 0, width, height);
-    D3Dots.drawDots(context, dataNodes);
-
-    if (currState === STATES.GRAPH) {
-      const xScale = d3.scaleUtc(
-        d3.extent(dataNodes.map((d) => d.dateConfirmed)),
-        [PADDING, width - PADDING]
-      );
-
-      D3Axes.drawAxes(
-        d3.select(xAxisRef.current),
-        d3.select(yAxisRef.current),
-        xScale
-      );
-    } else {
-      d3.select(xAxisRef.current).selectAll("*").remove();
-      d3.select(yAxisRef.current).selectAll("*").remove();
-    }
+    setTimer(newTimer);
   };
 
   return (

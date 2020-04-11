@@ -1,8 +1,6 @@
-import React, { useRef, useLayoutEffect, useState } from "react";
-import * as d3 from "d3";
+import React from "react";
 import data from "../data/processedData.json";
 import Dots from "./Dots";
-import Chart from "./Chart";
 
 const Visualization = () => {
   return (
