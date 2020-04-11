@@ -1,25 +1,32 @@
 const fs = require("fs");
 const d3 = require("d3");
 
+// Milliseconds in a day
+const DAY = 1000 * 60 * 60 * 24;
+
 // Daily numbers
-const rawCumulativeData = fs.readFileSync("./src/data/cumulativeData.json");
-const dayData = JSON.parse(rawCumulativeData).features.map((d) => d.attributes);
-const processedDayData = dayData.map((d) => ({
-  date: new Date(d.Date),
-  newConfirmed: d.Confirmation_Volume,
-  totalConfirmed: d.Confirmation_Total,
-  newDischarged: d.Discharge_Volume,
-  totalDischarged: d.Discharge_Total,
-}));
-fs.writeFileSync(
-  "./src/data/processedDayData.json",
-  JSON.stringify(processedDayData)
-);
+// const rawCumulativeData = fs.readFileSync("./src/data/cumulativeData.json");
+// const dayData = JSON.parse(rawCumulativeData).features.map((d) => d.attributes);
+// const processedDayData = dayData.map((d) => ({
+//   date: new Date(d.Date),
+//   newConfirmed: d.Confirmation_Volume,
+//   totalConfirmed: d.Confirmation_Total,
+//   newDischarged: d.Discharge_Volume,
+//   totalDischarged: d.Discharge_Total,
+// }));
+// fs.writeFileSync(
+//   "./src/data/processedDayData.json",
+//   JSON.stringify(processedDayData)
+// );
 
 const rawData = fs.readFileSync("./src/data/data.json");
-const patientsData = JSON.parse(rawData).features.map((p) => p.attributes);
+const patientsData = JSON.parse(rawData)
+  .map((d) => d.features.map((p) => p.attributes))
+  .flat();
 let date;
 let dayNo;
+let weekStart;
+let weekNo;
 const processedData = patientsData.map(
   ({
     Case_ID,
@@ -32,13 +39,18 @@ const processedData = patientsData.map(
     Date_of_Co,
     Prs_rl_URL,
   }) => {
+    const roundedDate = new Date(Date_of_Co);
+    roundedDate.setHours(0);
+
     if (date !== Date_of_Co) {
       date = Date_of_Co;
       dayNo = 0;
     }
 
-    const roundedDate = new Date(Date_of_Co);
-    roundedDate.setHours(0);
+    if (!weekStart || roundedDate.getTime() - weekStart > 7 * DAY) {
+      weekStart = roundedDate.getTime();
+      weekNo = 0;
+    }
 
     return {
       id: Case_ID,
@@ -51,6 +63,7 @@ const processedData = patientsData.map(
       dateConfirmed: roundedDate,
       pressReleaseURL: Prs_rl_URL,
       dayNo: dayNo++,
+      weekNo: weekNo++,
     };
   }
 );
@@ -83,9 +96,6 @@ for (let i = processedData.length - 1; i >= 0; i--) {
 
   processedData[i].angle = (processedData[i].dayNo / dayMax) * 2 * Math.PI;
 }
-
-// Milliseconds in a day
-const DAY = 1000 * 60 * 60 * 24;
 
 const nodeWithChildren = processedData.filter((d) => d.children).reverse();
 
@@ -148,7 +158,6 @@ const root = d3.stratify()(treeData);
 root.count().sort((a, b) => b.value - a.value);
 
 d3.tree().size([1000, 1000])(root);
-
 root.each((node) => {
   const index = parseInt(node.id) - 1;
   if (index >= 0) {
@@ -158,60 +167,6 @@ root.each((node) => {
 });
 
 processedData.forEach((d) => (d.parentId = undefined));
-
-// const singapore = JSON.parse(fs.readFileSync("./src/data/singapore.json"));
-
-// let positions = [];
-// let distances = new Array(singapore.data.length);
-
-// let totalDistance = 0;
-
-// singapore.data.forEach(({ x, y }, i) => {
-//   const { x: nextX, y: nextY } = singapore.data[
-//     (i + 1) % singapore.data.length
-//   ];
-//   totalDistance += Math.sqrt(
-//     (nextX - x) * (nextX - x) + (nextY - y) * (nextY - y)
-//   );
-//   distances[i] = totalDistance;
-// });
-
-// const remaining = (processedData.length - positions.length) / 6;
-// const perDot = totalDistance / remaining;
-
-// let distanceIndex = 0;
-
-// for (let i = 0; i < remaining; i++) {
-//   const nextDistance = (i + 1) * perDot;
-//   while (distances[distanceIndex] < nextDistance) {
-//     distanceIndex++;
-//   }
-//   const remainingDistance =
-//     distanceIndex === 0
-//       ? nextDistance
-//       : nextDistance - distances[distanceIndex - 1];
-
-//   const { x: thisX, y: thisY } = singapore.data[
-//     distanceIndex % singapore.data.length
-//   ];
-//   const { x: nextX, y: nextY } = singapore.data[
-//     (distanceIndex + 1) % singapore.data.length
-//   ];
-//   const angle = Math.atan2(nextY - thisY, nextX - thisX);
-//   positions.push({
-//     x:
-//       singapore.data[distanceIndex % singapore.data.length].x +
-//       remainingDistance * Math.cos(angle),
-//     y:
-//       singapore.data[distanceIndex % singapore.data.length].y +
-//       remainingDistance * Math.sin(angle),
-//   });
-// }
-
-// positions.forEach((p, i) => {
-//   processedData[i].sgX = p.x;
-//   processedData[i].sgY = p.y;
-// });
 
 const singapore = JSON.parse(fs.readFileSync("./src/data/another-sg.json"));
 
