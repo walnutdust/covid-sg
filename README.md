@@ -2,6 +2,8 @@
 
 A visualisation of Covid-19 related cases in Singapore from 23 January 2020 to 10 April 2020. Red dots signify patients who are infected, Green indicating recovered, and Black indicating deceased.
 
+![Visualization demo](assets/visualization_demo.gif)
+
 Change between 6 different views:
 
 1. Dots in the shape of Singapore - Introduction to get the user thinking about the fact these are the cases that have happened in the country.
