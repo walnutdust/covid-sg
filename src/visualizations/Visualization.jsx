@@ -1,6 +1,6 @@
 import React from "react";
-import data from "../data/processedData.json";
 import Dots from "./Dots";
+import data from "../data/processedData.json";
 
 const Visualization = () => {
   return (

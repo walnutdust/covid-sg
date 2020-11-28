@@ -1,3 +1,5 @@
+// Helper method to draw the dots and horizontal/vertical links,
+// if any.
 const D3Dots = {
   drawDots(ctx, nodes) {
     nodes.forEach((node) => {
@@ -26,28 +28,6 @@ const D3Dots = {
             node.y,
             midX,
             childNode.y,
-            childNode.x,
-            childNode.y
-          );
-          ctx.stroke();
-        });
-      }
-    });
-  },
-
-  drawVerticalLinks(ctx, nodes) {
-    nodes.forEach((node) => {
-      if (node.children) {
-        node.children.forEach((child) => {
-          const childNode = nodes[child - 1];
-          ctx.beginPath();
-          ctx.moveTo(node.x, node.y);
-          const midY = (childNode.y + node.y) / 2;
-          ctx.bezierCurveTo(
-            node.x,
-            midY,
-            childNode.x,
-            midY,
             childNode.x,
             childNode.y
           );

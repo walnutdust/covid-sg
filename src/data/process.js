@@ -263,6 +263,7 @@ for (let currLayer = numLayers; currLayer > 0; currLayer--) {
   }
 }
 
+// Determine the x and y coordinates for each node,
 processedData.forEach((node) => {
   node.sgX = 0;
   node.sgY = 0;
@@ -274,6 +275,7 @@ positions.forEach((p, i) => {
   processedData[i].sgY = p.y;
 });
 
+// Output the data.
 fs.writeFileSync(
   "./src/data/processedData.json",
   JSON.stringify(processedData)

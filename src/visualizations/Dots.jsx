@@ -94,6 +94,8 @@ const Dots = ({ data, height, width }) => {
   // This is the state where all the nodes are gathered in a circle.
   // This is achieved with a force that gathers all the nodes to the center,
   // counter-balanced by a force that spreads them out.
+  // Force values were determined empirically, might have to be recalibrated
+  // with more data.
   const gatherNodes = (dataNodes = nodes) => {
     resetState();
     const replusion = d3.forceManyBody().strength(-2);
